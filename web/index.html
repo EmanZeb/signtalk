@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SignTalk – Real-Time Sign Language Translator</title>
+<style>
+:root{--bg:#0f1420;--card:#1a2133;--ink:#eef2fb;--mut:#93a0bd;--acc:#2ee6a6;--acc2:#4cc9f0}
+*{box-sizing:border-box}body{margin:0;font-family:system-ui,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink)}
+header{padding:16px 24px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid #26304a;flex-wrap:wrap;gap:8px}
+h1{font-size:1.3rem;margin:0}h1 span{color:var(--acc)}
+.badge{font-size:.75rem;background:#26304a;padding:4px 10px;border-radius:99px;color:var(--mut)}
+main{display:grid;grid-template-columns:1.3fr 1fr;gap:18px;padding:18px 24px;max-width:1300px;margin:auto}
+@media(max-width:900px){main{grid-template-columns:1fr}}
+.card{background:var(--card);border-radius:16px;padding:16px}
+.card h2{margin:0 0 10px;font-size:.85rem;letter-spacing:.08em;text-transform:uppercase;color:var(--mut)}
+.stage{position:relative;border-radius:12px;overflow:hidden;background:#000;aspect-ratio:4/3}
+.stage video,.stage canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform:scaleX(-1)}
+#msg{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;text-align:center;padding:20px;color:#fff;z-index:2}
+#current{font-size:2.6rem;font-weight:700;color:var(--acc);min-height:3.4rem}
+.bar{height:8px;background:#26304a;border-radius:9px;overflow:hidden;margin:6px 0 4px}
+.bar>div{height:100%;width:0;background:linear-gradient(90deg,var(--acc2),var(--acc));transition:width .1s}
+#sentence{min-height:90px;font-size:1.6rem;line-height:1.4;background:#121828;border-radius:12px;padding:12px;word-break:break-word}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;align-items:center}
+button{border:0;border-radius:10px;padding:10px 16px;font-size:.95rem;font-weight:600;cursor:pointer;background:#26304a;color:var(--ink)}
+button.p{background:var(--acc);color:#04251a}button:hover{filter:brightness(1.15)}
+label{font-size:.85rem;color:var(--mut)}
+input[type=text],select{width:100%;padding:10px;border-radius:10px;border:1px solid #26304a;background:#121828;color:var(--ink);font-size:1rem}
+#reply{font-size:2rem;font-weight:700;color:var(--acc2);min-height:50px;margin-top:10px}
+.guide{display:grid;grid-template-columns:1fr 1fr;gap:8px;max-height:260px;overflow:auto}
+.g{background:#121828;border-radius:10px;padding:8px 10px;font-size:.82rem}.g b{color:var(--acc)}.g div{color:var(--mut);margin-top:2px}
+</style>
+</head>
+<body>
+<header><h1>🤟 Sign<span>Talk</span> – Real-Time Sign Language Translator</h1><span class="badge">AI + Computer Vision · runs 100% in your browser</span></header>
+<main>
+ <section>
+  <div class="card"><h2>Live camera</h2>
+   <div class="stage"><video id="video" autoplay playsinline muted></video><canvas id="canvas"></canvas>
+    <div id="msg"><button class="p" id="start">▶ Start camera</button></div></div></div>
+  <div class="card" style="margin-top:18px"><h2>Two-way communication (non-signer → signer)</h2>
+   <input type="text" id="replyIn" placeholder="Type a reply and press Enter, or use the mic…">
+   <div class="btns"><button id="mic">🎤 Speak to text</button><button id="rclear">Clear</button></div>
+   <div id="reply"></div></div>
+ </section>
+ <section>
+  <div class="card"><h2>Recognised sign</h2><div id="current">—</div>
+   <div class="bar"><div id="prog"></div></div><label>Hold the sign steady to add the word</label></div>
+  <div class="card" style="margin-top:18px"><h2>Sentence</h2><div id="sentence"></div>
+   <div class="btns"><button class="p" id="speakAll">🔊 Speak sentence</button><button id="undo">↩ Undo</button><button id="clear">🗑 Clear</button></div>
+   <div class="btns"><label><input type="checkbox" id="auto" checked> Auto-speak each new word</label></div>
+   <div style="margin-top:8px"><label>Voice</label><select id="voice"></select></div></div>
+  <div class="card" style="margin-top:18px"><h2>Train your own signs (data-driven AI)</h2>
+   <div class="btns" style="margin-top:0"><input type="text" id="lbl" placeholder="Sign name e.g. Doctor" style="flex:1"><button class="p" id="rec">● Record 40 samples</button></div>
+   <div id="dsinfo" style="margin:10px 0;font-size:.9rem;color:var(--mut)">Dataset: 0 samples</div>
+   <div class="btns" style="margin-top:0"><button id="exp">⬇ Export dataset (JSON)</button><button id="wipe">Delete dataset</button></div>
+   <label style="display:block;margin-top:8px">Show a hand, type the sign name, press Record and hold the sign while moving it slightly. A KNN classifier learns it instantly.</label></div>
+  <div class="card" style="margin-top:18px"><h2>Sign guide</h2><div class="guide" id="guide"></div></div>
+ </section>
+</main>
+<script src="gestures.js"></script>
+<script type="module">
+import { HandLandmarker, FilesetResolver, DrawingUtils } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/+esm";
+const $ = id => document.getElementById(id);
+const HOLD = 1000;
+let sentence = [], voices = [];
+
+// ---- speech ----
+function loadVoices(){voices=speechSynthesis.getVoices();$('voice').innerHTML=voices.map((v,i)=>`<option value="${i}">${v.name} (${v.lang})</option>`).join('')}
+speechSynthesis.onvoiceschanged = loadVoices; loadVoices();
+function speak(t){if(!t)return;const u=new SpeechSynthesisUtterance(t);const v=voices[$('voice').value];if(v)u.voice=v;speechSynthesis.cancel();speechSynthesis.speak(u)}
+function render(){$('sentence').textContent = sentence.join(' ')}
+$('speakAll').onclick = () => speak(sentence.join(' '));
+$('undo').onclick = () => { sentence.pop(); render() };
+$('clear').onclick = () => { sentence = []; render() };
+$('guide').innerHTML = GUIDE.map(([w,h]) => `<div class="g"><b>${w}</b><div>${h}</div></div>`).join('');
+$('replyIn').addEventListener('keydown', e => { if (e.key === 'Enter') $('reply').textContent = e.target.value });
+$('rclear').onclick = () => { $('reply').textContent = ''; $('replyIn').value = '' };
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (SR) { const r = new SR(); r.interimResults = true; r.lang = 'en-US';
+  r.onresult = e => { $('reply').textContent = [...e.results].map(x => x[0].transcript).join('') };
+  $('mic').onclick = () => r.start(); } else $('mic').style.display = 'none';
+
+
+// ---- custom dataset + KNN ----
+let dataset = []; let recLeft = 0, recLabel = '';
+try { dataset = JSON.parse(localStorage.getItem('signtalk_ds') || '[]'); } catch (e) {}
+function feat(lm) {
+  const w = lm[0]; let m = 1e-6;
+  const p = lm.map(q => [q.x - w.x, q.y - w.y, q.z - w.z]);
+  p.forEach(q => { m = Math.max(m, Math.hypot(q[0], q[1])); });
+  return p.flatMap(q => [q[0] / m, q[1] / m, q[2] / m]);
+}
+const mirror = f => f.map((v, i) => i % 3 === 0 ? -v : v);
+function saveDS() { try { localStorage.setItem('signtalk_ds', JSON.stringify(dataset)); } catch (e) {} showDS(); }
+function showDS() {
+  const c = {}; dataset.forEach(d => c[d.l] = (c[d.l] || 0) + 1);
+  const parts = Object.entries(c).map(([k, v]) => `${k}: ${v}`).join(' · ');
+  $('dsinfo').textContent = `Dataset: ${dataset.length} samples` + (parts ? ' — ' + parts : '');
+}
+function knn(f, k = 5) {
+  const dd = dataset.map(d => { let s = 0; for (let i = 0; i < 63; i++) { const t = d.f[i] - f[i]; s += t * t; } return [s, d.l]; })
+    .sort((a, b) => a[0] - b[0]).slice(0, k);
+  const votes = {}; dd.forEach(([_, l]) => votes[l] = (votes[l] || 0) + 1);
+  const [lab, n] = Object.entries(votes).sort((a, b) => b[1] - a[1])[0];
+  return n / dd.length >= 0.6 && dd[0][0] < 0.5 ? lab : null;
+}
+function predict(lm) {
+  if (recLeft > 0) { const f = feat(lm); dataset.push({ l: recLabel, f }, { l: recLabel, f: mirror(f) }); recLeft--; if (!recLeft) { saveDS(); $('rec').textContent = '● Record 40 samples'; } else showDS(); }
+  if (dataset.length >= 10) { const k = knn(feat(lm)); if (k) return k; }
+  return classify(lm);
+}
+$('rec').onclick = () => {
+  const l = $('lbl').value.trim(); if (!l) { alert('Type a sign name first'); return; }
+  recLabel = l; recLeft = 40; $('rec').textContent = 'Recording… keep the sign visible';
+};
+$('exp').onclick = () => {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(dataset)], { type: 'application/json' }));
+  a.download = 'signtalk_dataset.json'; a.click();
+};
+$('wipe').onclick = () => { dataset = []; saveDS(); };
+showDS();
+
+// ---- vision ----
+let landmarker, history = [], current = null, candidate = null, candStart = 0, locked = false, lastTs = -1;
+async function start() {
+  $('msg').innerHTML = 'Loading AI model…';
+  try {
+    const fileset = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+    landmarker = await HandLandmarker.createFromOptions(fileset, {
+      baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task" },
+      runningMode: "VIDEO", numHands: 1, minHandDetectionConfidence: 0.6 });
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+    $('video').srcObject = stream;
+    await $('video').play();
+    $('msg').style.display = 'none';
+    loop();
+  } catch (e) { $('msg').innerHTML = 'Could not start: ' + e.message + '<br>Allow the camera and use Chrome/Edge over HTTPS.'; }
+}
+$('start').onclick = start;
+
+function loop() {
+  const v = $('video'), c = $('canvas'), ctx = c.getContext('2d');
+  if (c.width !== v.videoWidth) { c.width = v.videoWidth; c.height = v.videoHeight; }
+  ctx.clearRect(0, 0, c.width, c.height);
+  let label = null;
+  if (v.currentTime !== lastTs) {
+    lastTs = v.currentTime;
+    const res = landmarker.detectForVideo(v, performance.now());
+    if (res.landmarks && res.landmarks.length) {
+      const lm = res.landmarks[0];
+      const du = new DrawingUtils(ctx);
+      du.drawConnectors(lm, HandLandmarker.HAND_CONNECTIONS, { color: "#2ee6a6", lineWidth: 3 });
+      du.drawLandmarks(lm, { color: "#ffffff", radius: 3 });
+      label = predict(lm);
+      history.push(label); if (history.length > 6) history.shift();
+      label = label && history.filter(x => x === label).length >= 3 ? label : current;
+    } else { history.push(null); if (history.length > 6) history.shift(); label = null; }
+    current = label;
+    commit(label, performance.now());
+    $('current').textContent = current || '—';
+  }
+  requestAnimationFrame(loop);
+}
+function commit(label, now) {
+  let progress = 0;
+  if (!label) { candidate = null; locked = false; }
+  else if (label !== candidate) { candidate = label; candStart = now; locked = false; }
+  else if (locked) progress = 1;
+  else {
+    progress = Math.min(1, (now - candStart) / HOLD);
+    if (progress >= 1) { sentence.push(label); locked = true; render(); if ($('auto').checked) speak(label); }
+  }
+  $('prog').style.width = (progress * 100) + '%';
+}
+</script>
+</body></html>
