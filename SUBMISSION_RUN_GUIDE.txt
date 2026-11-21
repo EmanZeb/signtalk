@@ -1,0 +1,23 @@
+SignTalk - Real-Time Sign Language Translator (AI + Computer Vision)
+
+OPTION 1 - Easiest (no install): open the Live URL in Chrome or Edge, click "Start camera", allow camera access.
+Hold a sign steady for ~1 second to add the word to the sentence. The word is spoken aloud automatically.
+Try: open palm = Hello, fist = Yes, thumbs up = Good, index+middle up = Peace, pinky up = I, W shape (3 fingers) = Water, thumb+index = Help.
+A full sign guide is shown on the page. Use "Speak sentence" to hear the whole sentence. The reply box (type or mic) lets a non-signer answer in large text.
+No environment variables or API keys are needed.
+
+OPTION 2 - Run locally (Python version with Flask backend):
+1. Install Python 3.11 (3.9-3.11 required for mediapipe 0.10.14).
+2. git clone <GITHUB_REPO_URL> and cd into the folder.
+3. python -m venv venv
+4. venv\Scripts\activate   (Mac/Linux: source venv/bin/activate)
+5. pip install -r requirements.txt
+6. python app.py
+7. Open http://127.0.0.1:5000 in Chrome. Allow the camera.
+Optional: python desktop.py for an OpenCV window with offline voice (Q quit, C clear, U undo, S speak).
+If the camera does not open: set CAM=1 (Windows) or CAM=1 python app.py.
+
+OPTION 3 - Run the browser version locally: cd web && python -m http.server 8000, then open http://localhost:8000
+
+Tech: Python, OpenCV, MediaPipe Hands, scikit-learn, Flask, MediaPipe Tasks (JS), Web Speech API.
+Tip: use good lighting, keep your hand 40-60 cm from the camera, palm facing the camera.
